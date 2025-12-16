@@ -1,6 +1,7 @@
 [English](./README.md) | 日本語
 
 [![Arduino Lint](https://github.com/Suzu-Gears/RoboMaster_Control_Arduino/actions/workflows/lint.yml/badge.svg)](https://github.com/Suzu-Gears/RoboMaster_Control_Arduino/actions/workflows/lint.yml)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Suzu-Gears/RoboMaster_Control_Arduino)
 
 # RoboMaster_Control_Arduino
 
