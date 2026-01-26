@@ -281,6 +281,16 @@ public:
   }
 
 private:
+  bool canWrite(const CanMsg& msg) {
+    unsigned long start = micros();
+    while (can_->write(msg) < 0) {
+      if (static_cast<unsigned long>(micros() - start) >= DEFAULT_CANTX_TIMEOUT_US) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   static void resolveCanId(MotorType motor_type, uint8_t id_val, uint16_t& rx_id, uint16_t& tx_id, uint8_t& tx_buf_idx) {
     tx_buf_idx = (id_val <= 4) ? (id_val - 1) : (id_val - 5);
     if (motor_type == MotorType::C610 || motor_type == MotorType::C620) {
@@ -311,9 +321,10 @@ private:
     if (!should_send) {
       return true;
     }
-    return can_->write(msg) >= 0;
+    return canWrite(msg);
   }
 
+  static constexpr unsigned long DEFAULT_CANTX_TIMEOUT_US = 1000;
   arduino::HardwareCAN* can_;
   size_t motor_count_;
   std::optional<MotorConfig> conflict_info_;
