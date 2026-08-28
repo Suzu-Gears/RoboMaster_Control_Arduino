@@ -57,6 +57,19 @@ Refer to the samples in the `examples` folder for details.
 
 - **C6x0_Feedback**: Example for reading C6x0 series motor feedback (angle, RPM, error, etc.)
 - **Mixed_Motors**: Example of handling C6x0 and GM6020 in a mixed environment.
+- **C610_Speed_Control**: PI speed control of a C610 with anti-windup.
+- **C610_Position_Control / C610_Position_Control2**: Cascade (position + velocity) PID position control of a C610.
+- **C610_Step_Response / C610_Speed_Step_Response**: Step-response measurement for parameter identification.
+- **speed_profile / speed_profile2** (RP2040 only): Tracking a pre-generated velocity profile in a 1 kHz timer interrupt (C610 / C620 variants).
+- **ps3position** (RP2040 only): Velocity/distance control from a PS3 controller via SBDBT, with NeoPixel status display.
+
+## Safety Notes
+
+- **Check registration**: A motor constructor can fail to register (ID conflict, invalid ID, or `MaxMotors` exceeded). Check `manager.hasConflict()` and/or `motor.isValid()` in `setup()` and halt on failure. Getters on an invalid motor safely return default values; setters are ignored.
+- **Feedback freshness**: Getters such as `getRpm()` keep returning the last received values even after a motor or the bus goes down. Use `motor.isFeedbackFresh(timeout_ms)` (or `getLastFeedbackMs()`) to detect feedback loss before trusting the values in a control loop.
+- **Command watchdog**: By default, `transmit()` retransmits the last target forever, even if your control loop stops updating it. Call `manager.setCommandTimeout(ms)` to send 0 instead when a motor's target has not been refreshed within `ms` milliseconds.
+- **Transmit blocking**: `transmit()` retries a full CAN TX queue for up to 1 ms per frame (up to 5 frames). Tune this with `manager.setTransmitTimeout(us)`, especially when calling `transmit()` from a timer interrupt.
+- **Interrupt safety**: The library has no internal locking. Call `update()`, `transmit()`, setters and getters from the same execution context, or guard them yourself. In particular, `getAccumPosition()` reads a 64-bit value that is not atomic on 32-bit MCUs.
 
 ## CAN ID Specifications
 
@@ -109,7 +122,7 @@ The following is a list of error codes that can be retrieved with `motor.getErro
 | :--: | :-------------------------------- | :--------: | :-------------------------------------------------------------- |
 | 0    | `NO_ERROR`                        | C610, C620 | No abnormality (normal)                                         |
 | 1    | `MOTOR_CHIP_ACCESS_FAILURE`       | C620       | Cannot access motor memory chip (during power-on self-test)     |
-| 2    | `MSC_SUPPLY_OVER_VOLTAGE`         | C610, C620 | ESC supply voltage is too high (during power-on self-test)      |
+| 2    | `ESC_SUPPLY_OVER_VOLTAGE`         | C610, C620 | ESC supply voltage is too high (during power-on self-test)      |
 | 3    | `THREE_PHASE_CABLE_NOT_CONNECTED` | C610, C620 | Three-phase cable to motor is not connected                     |
 | 4    | `POSITION_SENSOR_SIGNAL_LOST`     | C610, C620 | Signal is lost on the 4-pin position sensor cable               |
 | 5    | `MOTOR_TEMPERATURE_CRITICAL`      | C620       | Motor temperature is critical (e.g., >= 180°C)                  |

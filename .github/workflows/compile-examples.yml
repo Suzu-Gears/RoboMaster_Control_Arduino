@@ -1,0 +1,58 @@
+name: Compile Examples
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile-uno-r4:
+    name: Compile on Arduino UNO R4 Minima
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: arduino:renesas_uno:minima
+          libraries: |
+            - source-path: ./
+          sketch-paths: |
+            - examples/C6x0_Feedback
+            - examples/Mixed_Motors
+            - examples/C610_Position_Control
+            - examples/C610_Position_Control2
+            - examples/C610_Speed_Control
+            - examples/C610_Speed_Step_Response
+            - examples/C610_Step_Response
+          enable-warnings-report: true
+
+  compile-rp2040:
+    name: Compile on Raspberry Pi Pico (RP2040)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/compile-sketches@v1
+        with:
+          fqbn: rp2040:rp2040:rpipico
+          platforms: |
+            - name: rp2040:rp2040
+              source-url: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+          libraries: |
+            - source-path: ./
+            - source-url: https://github.com/eyr1n/RP2040PIO_CAN.git
+            - name: NeoPixelConnect
+          sketch-paths: |
+            - examples/C6x0_Feedback
+            - examples/Mixed_Motors
+            - examples/C610_Position_Control
+            - examples/C610_Position_Control2
+            - examples/C610_Speed_Control
+            - examples/C610_Speed_Step_Response
+            - examples/C610_Step_Response
+            - examples/ps3position
+            - examples/speed_profile
+            - examples/speed_profile2
+          enable-warnings-report: true

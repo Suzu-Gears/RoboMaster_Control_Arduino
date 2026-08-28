@@ -58,6 +58,19 @@ C6x0系のモーターとGM6020を混在して使うことが出来ます。ま�
 
 - **C6x0_Feedback**: C6x0系モーターのフィードバックの読み取り例
 - **Mixed_Motors**: C6x0系 と GM6020 を混在させて扱う例
+- **C610_Speed_Control**: C610のPI速度制御 (アンチワインドアップ付き)
+- **C610_Position_Control / C610_Position_Control2**: C610のカスケード (位置 + 速度) PID位置制御
+- **C610_Step_Response / C610_Speed_Step_Response**: パラメータ同定用のステップ応答測定
+- **speed_profile / speed_profile2** (RP2040専用): 1kHzタイマー割り込みでの速度プロファイル追従 (C610版 / C620版)
+- **ps3position** (RP2040専用): SBDBT経由のPS3コントローラーによる速度・距離制御 (NeoPixelステータス表示付き)
+
+## 安全に使うための注意
+
+- **登録結果の確認**: モーターのコンストラクタは登録に失敗することがあります (ID競合、不正なID、`MaxMotors`超過)。`setup()`で`manager.hasConflict()`や`motor.isValid()`を確認し、失敗時は停止してください。無効なモーターのゲッターはデフォルト値を返し、セッターは無視されます。
+- **フィードバックの鮮度**: `getRpm()`などのゲッターは、モーターやバスが停止しても最後に受信した値を返し続けます。制御ループで値を信用する前に、`motor.isFeedbackFresh(timeout_ms)` (または`getLastFeedbackMs()`) で通信断を検出してください。
+- **指令ウォッチドッグ**: デフォルトでは、制御ループが止まっても`transmit()`は最後の目標値を送信し続けます。`manager.setCommandTimeout(ms)`を呼ぶと、`ms`ミリ秒以内に目標値が更新されなかったモーターには0を送信します。
+- **送信ブロッキング**: CANのTXキューが満杯の場合、`transmit()`は1フレームあたり最大1ms (最大5フレーム) リトライします。特にタイマー割り込みから`transmit()`を呼ぶ場合は`manager.setTransmitTimeout(us)`で調整してください。
+- **割り込み安全性**: ライブラリ内部にロックはありません。`update()`・`transmit()`・セッター・ゲッターは同じ実行コンテキストから呼ぶか、自前で保護してください。特に`getAccumPosition()`は64bit値の読み取りで、32bit MCUではアトミックではありません。
 
 ## CAN ID仕様
 
@@ -110,7 +123,7 @@ C6x0系のモーターとGM6020を混在して使うことが出来ます。ま�
 | :----: | :-------------------------------- | :--------: | :----------------------------------------------------------- |
 | 0      | `NO_ERROR`                        | C610, C620 | 異常なし (正常)                                              |
 | 1      | `MOTOR_CHIP_ACCESS_FAILURE`       | C620       | モーターのメモリチップにアクセスできない (電源投入時のセルフテストで検出) |
-| 2      | `MSC_SUPPLY_OVER_VOLTAGE`         | C610, C620 | MSC(ESC)の供給電圧が高すぎる (電源投入時のセルフテストで検出)    |
+| 2      | `ESC_SUPPLY_OVER_VOLTAGE`         | C610, C620 | ESCの供給電圧が高すぎる (電源投入時のセルフテストで検出)    |
 | 3      | `THREE_PHASE_CABLE_NOT_CONNECTED` | C610, C620 | モーターへの三相ケーブルが接続されていない                 |
 | 4      | `POSITION_SENSOR_SIGNAL_LOST`     | C610, C620 | モーターに接続された4ピン位置センサーケーブルの信号が喪失 |
 | 5      | `MOTOR_TEMPERATURE_CRITICAL`      | C620       | モーター温度が危険域 (例: >= 180°C)                 |

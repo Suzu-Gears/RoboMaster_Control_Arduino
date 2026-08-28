@@ -1,0 +1,68 @@
+#######################################
+# Syntax Coloring Map For RoboMaster_Control
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+RoboMasterManager	KEYWORD1
+C610	KEYWORD1
+C620	KEYWORD1
+GM6020_Voltage	KEYWORD1
+GM6020_Current	KEYWORD1
+MotorType	KEYWORD1
+C6x0Id	KEYWORD1
+GM6020Id	KEYWORD1
+C6x0ErrorCode	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+update	KEYWORD2
+transmit	KEYWORD2
+getMotorCount	KEYWORD2
+hasConflict	KEYWORD2
+getConflictInfo	KEYWORD2
+getMotorConfig	KEYWORD2
+registerMotor	KEYWORD2
+setCommandTimeout	KEYWORD2
+setTransmitTimeout	KEYWORD2
+isValid	KEYWORD2
+hasFeedback	KEYWORD2
+getLastFeedbackMs	KEYWORD2
+isFeedbackFresh	KEYWORD2
+getPositionRaw	KEYWORD2
+getAccumPosition	KEYWORD2
+getRpm	KEYWORD2
+getTemperature	KEYWORD2
+getErrorCode	KEYWORD2
+setTargetRaw	KEYWORD2
+getTorqueCurrent	KEYWORD2
+getPositionRad	KEYWORD2
+getPositionDeg	KEYWORD2
+getAccumPositionRad	KEYWORD2
+getAccumPositionDeg	KEYWORD2
+getRps	KEYWORD2
+getVelocityRad	KEYWORD2
+setCurrent	KEYWORD2
+setVoltage	KEYWORD2
+getMotorTypeString	KEYWORD2
+getC6x0ErrorCodeString	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+INVALID_MOTOR_INDEX	LITERAL1
+NO_ERROR	LITERAL1
+MOTOR_CHIP_ACCESS_FAILURE	LITERAL1
+ESC_SUPPLY_OVER_VOLTAGE	LITERAL1
+THREE_PHASE_CABLE_NOT_CONNECTED	LITERAL1
+POSITION_SENSOR_SIGNAL_LOST	LITERAL1
+MOTOR_TEMPERATURE_CRITICAL	LITERAL1
+MOTOR_STALLED	LITERAL1
+MOTOR_CALIBRATION_FAILED	LITERAL1
+MOTOR_OVER_TEMPERATURE	LITERAL1
+NO_CAN_MESSAGE	LITERAL1
