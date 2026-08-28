@@ -78,7 +78,12 @@ robomaster::RoboMasterManager<1> manager(&CAN);
 robomaster::C610 motor(manager, robomaster::C6x0Id::ID_1);
 
 // Test parameters
+#if defined(ARDUINO_ARCH_RENESAS)
+// UNO R4 has 32KB of RAM; 4 log arrays x 1000 floats plus the heap do not fit.
+const int NUM_SAMPLES = 500;
+#else
 const int NUM_SAMPLES = 1000;
+#endif
 const int SAMPLE_INTERVAL_MS = 1;
 const float LOOP_FREQUENCY = 1000.0f / SAMPLE_INTERVAL_MS;
 const float STEP_SPEED_RAD_S = 2000.0f;  // Target speed for the step response
@@ -90,7 +95,7 @@ const float VELOCITY_KI = 68.5f;
 void setup() {
   // --- Data Logging Arrays ---
   // Use static to avoid stack overflow on some microcontrollers
-  static float target_speed_log[NUM_SAMPLES];
+  // (the target speed is constant, so it is not logged)
   static float current_speed_log[NUM_SAMPLES];
   static float current_position_log[NUM_SAMPLES];
   static float output_current_log[NUM_SAMPLES];
@@ -127,7 +132,9 @@ void setup() {
   Serial.println("--- Speed Control Step Response Test ---");
   Serial.print("Applying step speed of ");
   Serial.print(STEP_SPEED_RAD_S);
-  Serial.println(" rad/s for 1 second...");
+  Serial.print(" rad/s for ");
+  Serial.print(NUM_SAMPLES * SAMPLE_INTERVAL_MS);
+  Serial.println(" ms...");
   delay(1000);  // Give user time to open plotter
 
   // --- Data Logging Phase ---
@@ -143,7 +150,6 @@ void setup() {
     manager.transmit();
 
     // Log data
-    target_speed_log[i] = STEP_SPEED_RAD_S;
     current_speed_log[i] = current_speed;
     current_position_log[i] = motor.getAccumPositionRad();
     output_current_log[i] = output_current;
@@ -167,7 +173,7 @@ void setup() {
   for (int i = 0; i < NUM_SAMPLES; i++) {
     Serial.print(i * SAMPLE_INTERVAL_MS);
     Serial.print(",");
-    Serial.print(target_speed_log[i], 4);
+    Serial.print(STEP_SPEED_RAD_S, 4);
     Serial.print(",");
     Serial.print(current_speed_log[i], 4);
     Serial.print(",");
