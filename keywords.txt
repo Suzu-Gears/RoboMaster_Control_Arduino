@@ -28,7 +28,7 @@ getConflictInfo	KEYWORD2
 getMotorConfig	KEYWORD2
 registerMotor	KEYWORD2
 setCommandTimeout	KEYWORD2
-setTransmitTimeout	KEYWORD2
+setTxRetryTimeoutUs	KEYWORD2
 isValid	KEYWORD2
 hasFeedback	KEYWORD2
 getLastFeedbackMs	KEYWORD2

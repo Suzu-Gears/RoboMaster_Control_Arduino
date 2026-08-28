@@ -68,7 +68,7 @@ Refer to the samples in the `examples` folder for details.
 - **Check registration**: A motor constructor can fail to register (ID conflict, invalid ID, or `MaxMotors` exceeded). Check `manager.hasConflict()` and/or `motor.isValid()` in `setup()` and halt on failure. Getters on an invalid motor safely return default values; setters are ignored.
 - **Feedback freshness**: Getters such as `getRpm()` keep returning the last received values even after a motor or the bus goes down. Use `motor.isFeedbackFresh(timeout_ms)` (or `getLastFeedbackMs()`) to detect feedback loss before trusting the values in a control loop.
 - **Command watchdog**: By default, `transmit()` retransmits the last target forever, even if your control loop stops updating it. Call `manager.setCommandTimeout(ms)` to send 0 instead when a motor's target has not been refreshed within `ms` milliseconds.
-- **Transmit blocking**: `transmit()` retries a full CAN TX queue for up to 1 ms per frame (up to 5 frames). Tune this with `manager.setTransmitTimeout(us)`, especially when calling `transmit()` from a timer interrupt.
+- **Transmit blocking**: When the CAN TX queue is full, `transmit()` retries each frame (calling `yield()` between attempts) for up to 1 ms per frame (up to 5 frames), then drops it — the next `transmit()` supersedes it anyway. Tune this with `manager.setTxRetryTimeoutUs(us)` (0 = single attempt), especially when calling `transmit()` from a timer interrupt.
 - **Interrupt safety**: The library has no internal locking. Call `update()`, `transmit()`, setters and getters from the same execution context, or guard them yourself. In particular, `getAccumPosition()` reads a 64-bit value that is not atomic on 32-bit MCUs.
 
 ## CAN ID Specifications

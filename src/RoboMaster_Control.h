@@ -339,22 +339,27 @@ public:
     command_timeout_ms_ = timeout_ms;
   }
 
-  // Maximum time transmit() blocks retrying a single CAN frame when the
-  // driver's TX queue is full (default 1000us). transmit() can send up to
-  // 5 frames, so its worst-case blocking time is 5x this value.
-  void setTransmitTimeout(unsigned long timeout_us) {
+  // Maximum time writeFrame() keeps retrying a single CAN frame when the
+  // driver's TX queue is full (default 1000us, room for 7-8 frames at
+  // 1Mbps); 0 tries once and gives up. Periodic commands are overwritten
+  // by the next transmit() anyway, so dropping an expired frame is fine
+  // and this can stay short. transmit() can send up to 5 frames, so its
+  // worst-case blocking time is 5x this value.
+  void setTxRetryTimeoutUs(uint32_t timeout_us) {
     tx_timeout_us_ = timeout_us;
   }
 
 private:
-  bool canWrite(const CanMsg& msg) {
+  // Retries while the TX queue is full, calling yield() between attempts so
+  // background tasks (and watchdogs, e.g. on ESP32) keep running.
+  bool writeFrame(const CanMsg& msg) {
+    if (can_ == nullptr) return false;
     unsigned long start = micros();
-    while (can_->write(msg) < 0) {
-      if (static_cast<unsigned long>(micros() - start) >= tx_timeout_us_) {
-        return false;
-      }
+    for (;;) {
+      if (can_->write(msg) >= 0) return true;
+      if (static_cast<unsigned long>(micros() - start) >= tx_timeout_us_) return false;
+      yield();
     }
-    return true;
   }
 
   static void resolveCanId(MotorType motor_type, uint8_t id_val, uint16_t& rx_id, uint16_t& tx_id, uint8_t& tx_buf_idx) {
@@ -395,17 +400,17 @@ private:
     if (!should_send) {
       return true;
     }
-    return canWrite(msg);
+    return writeFrame(msg);
   }
 
-  static constexpr unsigned long DEFAULT_CANTX_TIMEOUT_US = 1000;
+  static constexpr uint32_t DEFAULT_CANTX_TIMEOUT_US = 1000;
   arduino::HardwareCAN* can_;
   size_t motor_count_;
   std::optional<MotorConfig> conflict_info_;
   std::array<MotorConfig, MaxMotors> configs_{};
   std::array<MotorParams, MaxMotors> params_{};
   uint32_t command_timeout_ms_ = 0;
-  unsigned long tx_timeout_us_ = DEFAULT_CANTX_TIMEOUT_US;
+  uint32_t tx_timeout_us_ = DEFAULT_CANTX_TIMEOUT_US;
 };
 
 class C610 : public detail::RoboMasterMotor {
