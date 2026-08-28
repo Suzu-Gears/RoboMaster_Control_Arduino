@@ -2,7 +2,7 @@
 #include <NeoPixelConnect.h>
 #include <RoboMaster_Control.h>
 #include "pid_controller.hpp"
-#include "PS3.h"
+#include "ps3.h"
 #include <cmath>  // For PI constant
 
 PidController motor_pid;
@@ -87,7 +87,7 @@ void loop() {
   // --- Distance Calculation ---
   // Calculate total_distance_mm directly from accumulated motor position
   // motor_c610.getAccumPositionRad() is motor shaft rotation, so divide by GEAR_RATIO for wheel rotation
-  total_distance_mm = (motor_c610.getAccumPositionRad() / (2.0f * PI * GEAR_RATIO));
+  total_distance_mm = (motor_c610.getAccumPositionRad() / (2.0f * PI * GEAR_RATIO)) * WHEEL_CIRCUMFERENCE_MM;
 
   // current_velocity_mm_s is still needed for PID feedback.
   // It's derived from motor_c610.getRps(), which is instantaneous rotational speed, not cumulative position.
@@ -109,19 +109,19 @@ void loop() {
   }
 
   // If joystick is moved significantly, switch to joystick mode
-  if (abs(rawLeftX) > 0.1f) {
+  if (fabsf(rawLeftX) > 0.1f) {
     current_mode = MODE_JOYSTICK;
   }
 
   // If D-pad left/right is pressed, switch to distance move mode
   if (ps3.getKeyDown(PS3Key::RIGHT)) {
     current_mode = MODE_DISTANCE_MOVE;
-    distance_target_mm = 1.0f;
+    distance_target_mm = WHEEL_CIRCUMFERENCE_MM;  // one wheel revolution
     distance_start_pos_mm = total_distance_mm;
   }
   if (ps3.getKeyDown(PS3Key::LEFT)) {
     current_mode = MODE_DISTANCE_MOVE;
-    distance_target_mm = -1.0f;
+    distance_target_mm = -WHEEL_CIRCUMFERENCE_MM;  // one wheel revolution
     distance_start_pos_mm = total_distance_mm;
   }
 
@@ -135,7 +135,7 @@ void loop() {
 
     case MODE_DISTANCE_MOVE:
       float distance_traveled = total_distance_mm - distance_start_pos_mm;
-      if (abs(distance_traveled) < abs(distance_target_mm)) {
+      if (fabsf(distance_traveled) < fabsf(distance_target_mm)) {
         // Not reached the target yet, keep moving at the selected speed level
         float direction = (distance_target_mm > 0) ? 1.0f : -1.0f;
         target_velocity = SPEED_LEVELS[current_speed_level_index] * direction;

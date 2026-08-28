@@ -100,7 +100,7 @@ void setup() {
 
 void loop() {
   if (log_ready_to_print) {
-    Serial.println("Target,Current");
+    Serial.println("Target,Current,Rad");
     for (int i = 0; i < LOG_SIZE; i++) {
       Serial.print(logs[i].targetVelocity, 6);
       Serial.print(",");

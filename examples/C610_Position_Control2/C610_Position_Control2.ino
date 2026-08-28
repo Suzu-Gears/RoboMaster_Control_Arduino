@@ -8,8 +8,8 @@
 
 #elif defined(ARDUINO_ARCH_ESP32)
 #include <ESP32_TWAI.h>  // For ESP32 series
-const gpio_num_t CAN_TX_PIN = 22;
-const gpio_num_t CAN_RX_PIN = 21;
+const gpio_num_t CAN_TX_PIN = GPIO_NUM_21;
+const gpio_num_t CAN_RX_PIN = GPIO_NUM_22;
 
 #elif defined(ARDUINO_ARCH_RP2040)
 #include <RP2040PIO_CAN.h>  // For RP2040, RP2350, etc.
@@ -148,7 +148,9 @@ void loop() {
 
   // --- Serial Plotter Output ---
   static unsigned long last_print_us = 0;
-  if (micros() - last_print_us > 1000) {  // Print every 1ms
+  // 10ms interval: at 115200 baud a line takes >1ms to send, so printing
+  // every 1ms would block Serial and break the 1kHz control loop timing.
+  if (micros() - last_print_us > 10000) {
     float output_shaft_current_pos = motor_shaft_current_pos / GEAR_RATIO;
     Serial.print(output_shaft_target_rad, 4);
     Serial.print(",");
