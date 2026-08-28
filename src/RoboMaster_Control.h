@@ -17,6 +17,11 @@
 
 namespace robomaster {
 
+// Returned by registerMotor() when registration fails (ID conflict, invalid ID,
+// or MaxMotors exceeded). All getters are safe to call on an invalid motor and
+// return default values; check RoboMasterMotor::isValid() after construction.
+inline constexpr size_t INVALID_MOTOR_INDEX = static_cast<size_t>(-1);
+
 enum class MotorType {
   C610,
   C620,
@@ -49,7 +54,7 @@ enum class GM6020Id {
 enum C6x0ErrorCode : uint8_t {
   NO_ERROR = 0,                         // C610, C620 | No abnormality (normal)
   MOTOR_CHIP_ACCESS_FAILURE = 1,        //       C620 | Cannot access motor memory chip (detected during power-on self-test)
-  MSC_SUPPLY_OVER_VOLTAGE = 2,          // C610, C620 | MSC supply voltage too high (detected during power-on self-test)
+  ESC_SUPPLY_OVER_VOLTAGE = 2,          // C610, C620 | ESC supply voltage too high (detected during power-on self-test)
   THREE_PHASE_CABLE_NOT_CONNECTED = 3,  // C610, C620 | Three-phase cable to motor not connected
   POSITION_SENSOR_SIGNAL_LOST = 4,      // C610, C620 | Signal lost on 4-pin position sensor cable connected to motor
   MOTOR_TEMPERATURE_CRITICAL = 5,       //       C620 | Motor temperature critical (e.g., >=180°C)
@@ -73,7 +78,7 @@ inline const char* getC6x0ErrorCodeString(C6x0ErrorCode code) {
   switch (code) {
     case C6x0ErrorCode::NO_ERROR: return "NO_ERROR";
     case C6x0ErrorCode::MOTOR_CHIP_ACCESS_FAILURE: return "MOTOR_CHIP_ACCESS_FAILURE";
-    case C6x0ErrorCode::MSC_SUPPLY_OVER_VOLTAGE: return "MSC_SUPPLY_OVER_VOLTAGE";
+    case C6x0ErrorCode::ESC_SUPPLY_OVER_VOLTAGE: return "ESC_SUPPLY_OVER_VOLTAGE";
     case C6x0ErrorCode::THREE_PHASE_CABLE_NOT_CONNECTED: return "THREE_PHASE_CABLE_NOT_CONNECTED";
     case C6x0ErrorCode::POSITION_SENSOR_SIGNAL_LOST: return "POSITION_SENSOR_SIGNAL_LOST";
     case C6x0ErrorCode::MOTOR_TEMPERATURE_CRITICAL: return "MOTOR_TEMPERATURE_CRITICAL";
@@ -86,6 +91,12 @@ inline const char* getC6x0ErrorCodeString(C6x0ErrorCode code) {
 }
 
 namespace detail {
+
+// NaN would invoke undefined behavior when converted to int16_t, so treat it as 0.
+inline float sanitizeCommand(float value) {
+  return (value != value) ? 0.0f : value;
+}
+
 class RoboMasterManagerBase {
 public:
   struct MotorConfig {
@@ -104,6 +115,8 @@ public:
     std::optional<int16_t> target_raw_;
     int8_t temp_ = 0;
     C6x0ErrorCode error_code_ = C6x0ErrorCode::NO_CAN_MESSAGE;
+    uint32_t last_feedback_ms_ = 0;
+    uint32_t last_command_ms_ = 0;
   };
 
   virtual ~RoboMasterManagerBase() = default;
@@ -122,6 +135,27 @@ public:
 
 class RoboMasterMotor {
 public:
+  // false if registration failed (ID conflict, invalid ID, or MaxMotors
+  // exceeded). Getters on an invalid motor return default values and
+  // setters are ignored.
+  bool isValid() const {
+    return motor_idx_ < manager_.getMotorCount();
+  }
+  // true once at least one feedback message has been received.
+  bool hasFeedback() const {
+    return manager_.getParams(motor_idx_).prev_position_.has_value();
+  }
+  // millis() timestamp of the last received feedback message (0 if none yet).
+  uint32_t getLastFeedbackMs() const {
+    return manager_.getParams(motor_idx_).last_feedback_ms_;
+  }
+  // true if feedback has been received within the last timeout_ms milliseconds.
+  // Use this to detect a motor/bus failure before trusting getRpm() etc.,
+  // which keep returning the last received values.
+  bool isFeedbackFresh(uint32_t timeout_ms) const {
+    const auto& params = manager_.getParams(motor_idx_);
+    return params.prev_position_.has_value() && (millis() - params.last_feedback_ms_) <= timeout_ms;
+  }
   // Angle range: 0 to 8191 (0° to 360°)
   int16_t getPositionRaw() const {
     return manager_.getParams(motor_idx_).prev_position_.value_or(0);
@@ -139,7 +173,7 @@ public:
   }
   // C610 C620 |  0 NO_ERROR,
   // ---- C620 |  1 MOTOR_CHIP_ACCESS_FAILURE,
-  // C610 C620 |  2 MSC_SUPPLY_OVER_VOLTAGE,
+  // C610 C620 |  2 ESC_SUPPLY_OVER_VOLTAGE,
   // C610 C620 |  3 THREE_PHASE_CABLE_NOT_CONNECTED,
   // C610 C620 |  4 POSITION_SENSOR_SIGNAL_LOST,
   // ---- C620 |  5 MOTOR_TEMPERATURE_CRITICAL,
@@ -190,6 +224,11 @@ protected:
 }  // namespace detail
 
 
+// Thread/ISR safety: this class has no internal locking. Call update(),
+// transmit(), setters and getters from the same execution context, or guard
+// them yourself. In particular, getAccumPosition() reads a 64-bit value that
+// is not atomic on 32-bit MCUs; reading it from loop() while update() runs in
+// an ISR can return a torn value.
 template<size_t MaxMotors = 15>
 class RoboMasterManager : public detail::RoboMasterManagerBase {
 public:
@@ -216,6 +255,7 @@ public:
           if (configs_[i].motor_type == MotorType::C610 || configs_[i].motor_type == MotorType::C620) {
             param.error_code_ = static_cast<C6x0ErrorCode>(msg.data[7]);
           }
+          param.last_feedback_ms_ = millis();
           break;
         }
       }
@@ -223,12 +263,13 @@ public:
   }
 
   bool transmit() override {
-    if (!sendMotorControlCommands(0x200)) return false;
-    if (!sendMotorControlCommands(0x1FF)) return false;
-    if (!sendMotorControlCommands(0x2FF)) return false;
-    if (!sendMotorControlCommands(0x1FE)) return false;
-    if (!sendMotorControlCommands(0x2FE)) return false;
-    return true;
+    bool ok = true;
+    ok &= sendMotorControlCommands(0x200);
+    ok &= sendMotorControlCommands(0x1FF);
+    ok &= sendMotorControlCommands(0x2FF);
+    ok &= sendMotorControlCommands(0x1FE);
+    ok &= sendMotorControlCommands(0x2FE);
+    return ok;
   }
 
   size_t getMotorCount() const override {
@@ -244,11 +285,17 @@ public:
   }
 
   const MotorConfig& getMotorConfig(size_t index) const override {
+    if (index >= motor_count_) {
+      static const MotorConfig empty_config{};
+      return empty_config;
+    }
     return configs_[index];
   }
 
   size_t registerMotor(MotorType motor, uint8_t id) override {
-    if (hasConflict() || motor_count_ >= MaxMotors) return -1;
+    const bool is_c6x0 = (motor == MotorType::C610 || motor == MotorType::C620);
+    if (id < 1 || id > (is_c6x0 ? 8 : 7)) return INVALID_MOTOR_INDEX;
+    if (hasConflict() || motor_count_ >= MaxMotors) return INVALID_MOTOR_INDEX;
     uint16_t rx_id = 0, tx_id = 0;
     uint8_t tx_buf_idx = 0;
     resolveCanId(motor, id, rx_id, tx_id, tx_buf_idx);
@@ -261,7 +308,7 @@ public:
     for (size_t i = 0; i < motor_count_; ++i) {
       if (configs_[i].rx_id == rx_id || (configs_[i].tx_id == tx_id && configs_[i].tx_buf_idx == tx_buf_idx)) {
         conflict_info_ = motor_config;
-        return -1;
+        return INVALID_MOTOR_INDEX;
       }
     }
     const size_t motor_idx = motor_count_++;
@@ -273,18 +320,37 @@ public:
   void setTargetRaw(size_t motor_idx, int16_t target_raw) override {
     if (motor_idx < motor_count_) {
       params_[motor_idx].target_raw_ = target_raw;
+      params_[motor_idx].last_command_ms_ = millis();
     }
   }
 
   const MotorParams& getParams(size_t motor_idx) const override {
+    if (motor_idx >= motor_count_) {
+      static const MotorParams empty_params{};
+      return empty_params;
+    }
     return params_[motor_idx];
+  }
+
+  // Failsafe: if no new target has been set for a motor within timeout_ms,
+  // transmit() sends 0 for that motor instead of repeating the last target.
+  // 0 disables the watchdog (default; last target is retransmitted forever).
+  void setCommandTimeout(uint32_t timeout_ms) {
+    command_timeout_ms_ = timeout_ms;
+  }
+
+  // Maximum time transmit() blocks retrying a single CAN frame when the
+  // driver's TX queue is full (default 1000us). transmit() can send up to
+  // 5 frames, so its worst-case blocking time is 5x this value.
+  void setTransmitTimeout(unsigned long timeout_us) {
+    tx_timeout_us_ = timeout_us;
   }
 
 private:
   bool canWrite(const CanMsg& msg) {
     unsigned long start = micros();
     while (can_->write(msg) < 0) {
-      if (static_cast<unsigned long>(micros() - start) >= DEFAULT_CANTX_TIMEOUT_US) {
+      if (static_cast<unsigned long>(micros() - start) >= tx_timeout_us_) {
         return false;
       }
     }
@@ -309,11 +375,19 @@ private:
     CanMsg msg;
     msg.id = CanStandardId(tx_id);
     msg.data_length = 8;
+    // Do not rely on CanMsg's constructor: slots of unregistered motors must be 0.
+    for (size_t i = 0; i < 8; ++i) {
+      msg.data[i] = 0;
+    }
     bool should_send = false;
+    const uint32_t now_ms = millis();
     for (size_t i = 0; i < motor_count_; ++i) {
       if (configs_[i].tx_id == tx_id && params_[i].target_raw_.has_value()) {
         should_send = true;
         int16_t raw_val = params_[i].target_raw_.value();
+        if (command_timeout_ms_ != 0 && (now_ms - params_[i].last_command_ms_) > command_timeout_ms_) {
+          raw_val = 0;
+        }
         msg.data[configs_[i].tx_buf_idx * 2] = raw_val >> 8;
         msg.data[configs_[i].tx_buf_idx * 2 + 1] = raw_val;
       }
@@ -330,6 +404,8 @@ private:
   std::optional<MotorConfig> conflict_info_;
   std::array<MotorConfig, MaxMotors> configs_{};
   std::array<MotorParams, MaxMotors> params_{};
+  uint32_t command_timeout_ms_ = 0;
+  unsigned long tx_timeout_us_ = DEFAULT_CANTX_TIMEOUT_US;
 };
 
 class C610 : public detail::RoboMasterMotor {
@@ -337,7 +413,8 @@ public:
   C610(detail::RoboMasterManagerBase& manager, C6x0Id id) : detail::RoboMasterMotor(manager, manager.registerMotor(MotorType::C610, static_cast<uint8_t>(id))) {}
   // C610: -10000 to 10000 [mA] (±10A) (Clamped)
   void setCurrent(float current_mA) {
-    manager_.setTargetRaw(motor_idx_, std::clamp(current_mA, -10000.0f, 10000.0f));
+    current_mA = detail::sanitizeCommand(current_mA);
+    manager_.setTargetRaw(motor_idx_, static_cast<int16_t>(std::clamp(current_mA, -10000.0f, 10000.0f)));
   }
 };
 
@@ -350,7 +427,8 @@ public:
   }
   // C620: -20000 to 20000 [mA] (±20A) (Clamped)
   void setCurrent(float current_mA) {
-    int16_t target = std::clamp(current_mA / 20000.0f * 16384.0f, -16384.0f, 16384.0f);
+    current_mA = detail::sanitizeCommand(current_mA);
+    int16_t target = static_cast<int16_t>(std::clamp(current_mA / 20000.0f * 16384.0f, -16384.0f, 16384.0f));
     manager_.setTargetRaw(motor_idx_, target);
   }
 };
@@ -360,16 +438,22 @@ public:
   GM6020_Voltage(detail::RoboMasterManagerBase& manager, GM6020Id id) : detail::RoboMasterMotor(manager, manager.registerMotor(MotorType::GM6020_Voltage, static_cast<uint8_t>(id))) {}
   // GM6020: -25000 to 25000 [mV] (±25V) (Clamped)
   void setVoltage(float voltage_mV) {
-    manager_.setTargetRaw(motor_idx_, std::clamp(voltage_mV, -25000.0f, 25000.0f));
+    voltage_mV = detail::sanitizeCommand(voltage_mV);
+    manager_.setTargetRaw(motor_idx_, static_cast<int16_t>(std::clamp(voltage_mV, -25000.0f, 25000.0f)));
   }
 };
 
 class GM6020_Current : public detail::RoboMasterMotor {
 public:
   GM6020_Current(detail::RoboMasterManagerBase& manager, GM6020Id id) : detail::RoboMasterMotor(manager, manager.registerMotor(MotorType::GM6020_Current, static_cast<uint8_t>(id))) {}
+  // [mA] (inverse of the setCurrent() mapping: raw ±16384 -> ±3000mA)
+  float getTorqueCurrent() const override {
+    return static_cast<float>(manager_.getParams(motor_idx_).current_raw_) / 16384.0f * 3000.0f;
+  }
   // GM6020: -3000 to 3000 [mA] (±3A) (Clamped)
   void setCurrent(float current_mA) {
-    int16_t target = std::clamp(current_mA / 3000.0f * 16384.0f, -16384.0f, 16384.0f);
+    current_mA = detail::sanitizeCommand(current_mA);
+    int16_t target = static_cast<int16_t>(std::clamp(current_mA / 3000.0f * 16384.0f, -16384.0f, 16384.0f));
     manager_.setTargetRaw(motor_idx_, target);
   }
 };
